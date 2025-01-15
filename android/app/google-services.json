@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "535166613531",
+    "project_id": "cosmicbrain-1360a",
+    "storage_bucket": "cosmicbrain-1360a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:535166613531:android:2aef70fdd3162f58eba0be",
+        "android_client_info": {
+          "package_name": "tech.cosmicbrain.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDPB3xWjDmRIUBrKLk4VXQjs09mu_6AhmU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

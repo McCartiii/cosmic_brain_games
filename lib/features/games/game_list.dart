@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'color_match/color_match_game.dart';
 import 'memory_matrix/memory_matrix_game.dart';
 import 'photon_burst/photon_burst_game.dart';
+import 'orbit_navigator/orbit_navigator_game.dart'; // Add this import
 
 class Game {
   final String name;
@@ -40,5 +41,12 @@ final List<Game> games = [
     icon: Icons.flash_on,
     game: () => const PhotonBurstGame(),
     color: Colors.deepPurple,
+  ),
+  Game(
+    name: 'Orbit Navigator',
+    description: 'Navigate through cosmic orbits and dodge obstacles!',
+    icon: Icons.track_changes,
+    game: () => const OrbitNavigatorGame(),
+    color: Colors.teal,
   ),
 ];

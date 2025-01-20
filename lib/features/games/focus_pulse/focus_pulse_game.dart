@@ -28,7 +28,7 @@ class _FocusPulseGameState extends State<FocusPulseGame>
   Timer? warningTimer;
   double gameSpeed = 1.0;
   int gridSize = FocusPulseConstants.initialGridSize;
-  Map<int, bool> feedbackMap = {};
+  String? speedBonusText;
 
   late final AnimationController _feedbackController;
 
@@ -64,7 +64,7 @@ class _FocusPulseGameState extends State<FocusPulseGame>
       gameSpeed = 1.0;
       gridSize = FocusPulseConstants.initialGridSize;
       targets.clear();
-      feedbackMap.clear();
+      speedBonusText = null;
       currentRule = FocusPulseConstants
           .basicRules[random.nextInt(FocusPulseConstants.basicRules.length)];
     });
@@ -76,6 +76,7 @@ class _FocusPulseGameState extends State<FocusPulseGame>
     setState(() {
       roundPhase = RoundPhase.instruction;
       targets.clear();
+      speedBonusText = null;
     });
 
     phaseTimer = Timer(FocusPulseConstants.instructionPhaseDuration, () {
@@ -96,6 +97,7 @@ class _FocusPulseGameState extends State<FocusPulseGame>
 
     phaseTimer = Timer(FocusPulseConstants.actionPhaseDuration, () {
       if (mounted) {
+        gameTimer?.cancel();
         endActionPhase();
       }
     });
@@ -110,10 +112,12 @@ class _FocusPulseGameState extends State<FocusPulseGame>
         currentLevel++;
         roundsCompleted = 0;
         gameSpeed += FocusPulseConstants.speedIncreasePerLevel;
-        if (gridSize < FocusPulseConstants.maxGridSize) {
+        if (gridSize < FocusPulseConstants.maxGridSize &&
+            currentLevel % 2 == 0) {
           gridSize++;
         }
       }
+      targets.clear();
     });
 
     startPausePhase();
@@ -123,6 +127,7 @@ class _FocusPulseGameState extends State<FocusPulseGame>
     setState(() {
       roundPhase = RoundPhase.pause;
       targets.clear();
+      speedBonusText = null;
     });
 
     phaseTimer = Timer(FocusPulseConstants.pausePhaseDuration, () {
@@ -137,23 +142,21 @@ class _FocusPulseGameState extends State<FocusPulseGame>
   void startGameLoop() {
     gameTimer?.cancel();
 
-    gameTimer = Timer.periodic(
+    Future.delayed(
         Duration(
             milliseconds:
                 (FocusPulseConstants.baseTargetDuration.inMilliseconds /
                         gameSpeed)
-                    .round()), (timer) {
+                    .round()), () {
       if (mounted &&
           gameState == GameState.playing &&
           roundPhase == RoundPhase.action) {
         setState(() {
-          if (targets.isEmpty || targets.length < gridSize) {
-            spawnTargets();
-          }
-          feedbackMap.clear();
+          // Spawn new grid of targets
+          spawnTargets();
+          speedBonusText = null;
         });
-      } else {
-        timer.cancel();
+        startGameLoop();
       }
     });
   }
@@ -180,63 +183,85 @@ class _FocusPulseGameState extends State<FocusPulseGame>
     bool isCorrect = currentRule.isValidTarget(target);
 
     setState(() {
-      feedbackMap[target.gridPosition] = isCorrect;
-
       if (isCorrect) {
-        score +=
-            (FocusPulseConstants.pointsForCorrectTap * scoreMultiplier).round();
+        // Calculate speed bonus based on how quickly they tapped
+        double speedBonus = 1.0;
+        if (_feedbackController.value < 0.3) {
+          speedBonus = 1.0 + FocusPulseConstants.speedBonusMultiplier;
+          speedBonusText =
+              'FAST! +${(FocusPulseConstants.pointsForCorrectTap * FocusPulseConstants.speedBonusMultiplier).round()}';
+        }
+
+        // Apply score with speed bonus
+        score += ((FocusPulseConstants.pointsForCorrectTap *
+                scoreMultiplier *
+                speedBonus))
+            .round();
+
         streak++;
         consecutiveErrors = 0;
+
+        // Streak bonus
         if (streak > 0 &&
             streak % FocusPulseConstants.streakBonusThreshold == 0) {
           score += FocusPulseConstants.streakBonusPoints;
-          scoreMultiplier += 0.5;
+          scoreMultiplier += 0.2;
         }
+
         // Remove the tapped target
         targets.removeWhere((t) => t.gridPosition == target.gridPosition);
+
+        // If no more valid targets exist, end the round
+        if (!targets.any((t) => currentRule.isValidTarget(t))) {
+          endActionPhase();
+        }
       } else {
         score = max(0, score + FocusPulseConstants.pointsForIncorrectTap);
         streak = 0;
         consecutiveErrors++;
+        scoreMultiplier = max(1.0, scoreMultiplier - 0.3);
+        speedBonusText = null;
+
         if (consecutiveErrors >= FocusPulseConstants.maxConsecutiveErrors) {
           showWarning();
         }
       }
     });
 
-    _feedbackController.forward(from: 0).then((_) {
-      if (mounted) {
-        setState(() {
-          feedbackMap.remove(target.gridPosition);
-        });
-      }
-    });
+    _feedbackController.forward(from: 0);
   }
 
   void spawnTargets() {
-    // Clear inactive targets
-    targets.removeWhere((target) => !target.isActive);
+    // Clear existing targets and positions
+    targets.clear();
 
-    // Only add new targets if we need more
-    if (targets.length < gridSize * gridSize) {
-      // Ensure at least one valid target
-      if (!targets.any((t) => currentRule.isValidTarget(t))) {
-        final validTarget = createValidTarget();
-        targets.add(validTarget);
-      }
+    // Calculate number of valid targets based on level (more aggressive scaling)
+    int validTargetCount =
+        1 + ((currentLevel - 1) * 2); // Doubles the increase rate
+    validTargetCount = min(
+        validTargetCount, (gridSize * gridSize) ~/ 2); // Cap at half the grid
 
-      // Add bait target if in higher levels
-      if (currentLevel >= 2 && !targets.any((t) => t.isBait)) {
-        final baitTarget = createBaitTarget();
-        targets.add(baitTarget);
-      }
+    // Add valid targets
+    for (int i = 0; i < validTargetCount; i++) {
+      targets.add(createValidTarget());
+    }
 
-      // Fill remaining spaces with random targets
-      while (targets.length < gridSize * gridSize) {
-        final target = createRandomTarget();
-        if (!targets.any((t) => t.gridPosition == target.gridPosition)) {
-          targets.add(target);
-        }
+    // Add bait targets in higher levels (more bait as level increases)
+    int baitCount = currentLevel >= 2 ? (currentLevel ~/ 2) : 0;
+    baitCount = min(
+        baitCount,
+        (gridSize * gridSize - validTargetCount) ~/
+            2); // Cap at half remaining spaces
+
+    for (int i = 0; i < baitCount; i++) {
+      targets.add(createBaitTarget());
+    }
+
+    // Fill remaining spaces with random targets
+    while (targets.length < gridSize * gridSize) {
+      final target = createRandomTarget();
+      if (!targets.any((t) => t.gridPosition == target.gridPosition)) {
+        targets.add(target);
       }
     }
   }
@@ -285,11 +310,12 @@ class _FocusPulseGameState extends State<FocusPulseGame>
   }
 
   int getRandomEmptyPosition() {
-    int position;
-    do {
-      position = random.nextInt(gridSize * gridSize);
-    } while (targets.any((t) => t.gridPosition == position));
-    return position;
+    List<int> availablePositions = List.generate(gridSize * gridSize, (i) => i)
+        .where((pos) => !targets.any((t) => t.gridPosition == pos))
+        .toList();
+
+    if (availablePositions.isEmpty) return 0;
+    return availablePositions[random.nextInt(availablePositions.length)];
   }
 
   @override
@@ -329,7 +355,7 @@ class _FocusPulseGameState extends State<FocusPulseGame>
                             style: FocusPulseConstants.streakStyle,
                           ),
                           Text(
-                            '${scoreMultiplier}x',
+                            '${scoreMultiplier.toStringAsFixed(1)}x',
                             style: FocusPulseConstants.streakStyle.copyWith(
                               color: Colors.yellow,
                             ),
@@ -356,6 +382,17 @@ class _FocusPulseGameState extends State<FocusPulseGame>
                       'Get Ready...',
                       style: FocusPulseConstants.instructionStyle,
                       textAlign: TextAlign.center,
+                    ),
+                  ),
+                if (speedBonusText != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Text(
+                      speedBonusText!,
+                      style: FocusPulseConstants.streakStyle.copyWith(
+                        color: Colors.green,
+                        fontSize: 24,
+                      ),
                     ),
                   ),
                 Expanded(
@@ -396,38 +433,20 @@ class _FocusPulseGameState extends State<FocusPulseGame>
                                 child: SizedBox(
                                   width: size,
                                   height: size,
-                                  child: AnimatedBuilder(
-                                    animation: _feedbackController,
-                                    builder: (context, child) {
-                                      final feedback =
-                                          feedbackMap[target.gridPosition];
-                                      final color = feedback == null
-                                          ? null
-                                          : feedback
-                                              ? FocusPulseConstants
-                                                  .correctFeedbackColor
-                                              : FocusPulseConstants
-                                                  .incorrectFeedbackColor;
-
-                                      return GestureDetector(
-                                        onTap: () => onTargetTapped(target),
-                                        child: Container(
+                                  child: GestureDetector(
+                                    onTap: () => onTargetTapped(target),
+                                    child: AnimatedBuilder(
+                                      animation: _feedbackController,
+                                      builder: (context, child) {
+                                        return Container(
                                           decoration: BoxDecoration(
-                                            border: color != null
-                                                ? Border.all(
-                                                    color: color.withOpacity(
-                                                        _feedbackController
-                                                            .value),
-                                                    width: 3,
-                                                  )
-                                                : null,
                                             borderRadius:
                                                 BorderRadius.circular(8),
                                           ),
                                           child: GameShape(target: target),
-                                        ),
-                                      );
-                                    },
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
                               );

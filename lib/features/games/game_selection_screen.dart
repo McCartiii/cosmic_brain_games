@@ -1,18 +1,16 @@
 import 'package:flutter/material.dart';
-import 'memory_command/memory_command_game.dart';
-import 'memory_command/memory_command_constants.dart';
-import 'photon_burst/photon_burst_game.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import 'memory_command/memory_command_game.dart';
+import 'memory_command/memory_command_constants.dart' as memory_command;
+import 'photon_burst/photon_burst_game.dart';
+import 'photon_burst/photon_burst_constants.dart' as photon_burst;
 
 enum GameType {
   memoryCommand,
   photonBurst,
-  colormatch,
-  focuspulse,
-  memorymatrix,
-  memorytrail,
-  orbitnavigator,
 }
+
+enum Difficulty { easy, normal, hard }
 
 class GameSelectionScreen extends StatelessWidget {
   const GameSelectionScreen({super.key});
@@ -45,21 +43,16 @@ class GameSelectionScreen extends StatelessWidget {
               _buildGameCard(
                 context,
                 title: 'Memory Command',
-                description:
-                    'Manage multiple stations and track hidden timers!',
-                color: const Color(0xFF2196F3),
-                icon: Icons.memory,
-                difficulty: 'Strategic',
-                game: GameType.memoryCommand,
+                description: 'Test your memory and multitasking skills!',
+                color: Colors.blue,
+                gameType: GameType.memoryCommand,
               ),
               _buildGameCard(
                 context,
                 title: 'Photon Burst',
-                description: 'Test your reflexes by tapping moving targets!',
-                color: const Color(0xFFE91E63),
-                icon: Icons.blur_circular,
-                difficulty: 'Reflexes',
-                game: GameType.photonBurst,
+                description: 'Fast-paced target shooting challenge!',
+                color: Colors.purple,
+                gameType: GameType.photonBurst,
               ),
             ],
           ),
@@ -73,249 +66,99 @@ class GameSelectionScreen extends StatelessWidget {
     required String title,
     required String description,
     required Color color,
-    required IconData icon,
-    required String difficulty,
-    required GameType game,
+    required GameType gameType,
   }) {
-    return Hero(
-      tag: title,
-      child: Card(
-        elevation: 8,
-        margin: const EdgeInsets.all(8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () => _showDifficultyDialog(context, game),
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    color,
-                    color.withOpacity(0.8),
-                  ],
-                ),
-              ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  TweenAnimationBuilder(
-                    tween: Tween<double>(begin: 0, end: 1),
-                    duration: const Duration(milliseconds: 500),
-                    builder: (context, double value, child) {
-                      return Transform.scale(
-                        scale: value,
-                        child: child,
-                      );
-                    },
-                    child: Icon(
-                      icon,
-                      size: 48,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black26,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      difficulty,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showDifficultyDialog(BuildContext context, GameType game) {
-    showGeneralDialog(
-      context: context,
-      pageBuilder: (context, animation, secondaryAnimation) {
-        return Container();
-      },
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        final curvedAnimation = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeInOut,
-        );
-
-        return ScaleTransition(
-          scale: Tween<double>(begin: 0.8, end: 1.0).animate(curvedAnimation),
-          child: FadeTransition(
-            opacity: curvedAnimation,
-            child: AlertDialog(
-              backgroundColor: const Color(0xFF1A1A1A),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: const Text(
-                'Select Difficulty',
-                style: TextStyle(color: Colors.white),
-                textAlign: TextAlign.center,
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildDifficultyButton(
-                    context,
-                    'Easy',
-                    game == GameType.memoryCommand
-                        ? 'Longer timers, more forgiving'
-                        : 'Slower targets, more time',
-                    Difficulty.easy,
-                    Colors.green,
-                    game: game,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildDifficultyButton(
-                    context,
-                    'Normal',
-                    'Balanced challenge',
-                    Difficulty.normal,
-                    Colors.blue,
-                    game: game,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildDifficultyButton(
-                    context,
-                    'Hard',
-                    game == GameType.memoryCommand
-                        ? 'Quick timers, high pressure'
-                        : 'Fast targets, quick reactions needed',
-                    Difficulty.hard,
-                    Colors.red,
-                    game: game,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-      transitionDuration: const Duration(milliseconds: 300),
-    );
-  }
-
-  Widget _buildDifficultyButton(
-    BuildContext context,
-    String title,
-    String description,
-    Difficulty difficulty,
-    Color color, {
-    required GameType game,
-  }) {
-    return TweenAnimationBuilder(
-      tween: Tween<double>(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 200),
-      builder: (context, double value, child) {
-        return Transform.scale(
-          scale: value,
-          child: child,
-        );
-      },
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: color.withOpacity(0.8),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 24,
-              vertical: 16,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            elevation: 4,
-          ),
-          onPressed: () {
-            Navigator.of(context).pop();
-            Navigator.push(
-              context,
-              PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) {
-                  return game == GameType.photonBurst
-                      ? PhotonBurstGame(difficulty: difficulty)
-                      : MemoryCommandGame(difficulty: difficulty);
-                },
-                transitionsBuilder:
-                    (context, animation, secondaryAnimation, child) {
-                  const begin = Offset(1.0, 0.0);
-                  const end = Offset.zero;
-                  const curve = Curves.easeInOut;
-                  var tween = Tween(begin: begin, end: end)
-                      .chain(CurveTween(curve: curve));
-                  var offsetAnimation = animation.drive(tween);
-                  return SlideTransition(
-                    position: offsetAnimation,
-                    child: child,
-                  );
-                },
-              ),
-            );
-          },
+    return Card(
+      color: color.withOpacity(0.2),
+      child: InkWell(
+        onTap: () => _showDifficultyDialog(context, gameType),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
                 title,
                 style: const TextStyle(
+                  color: Colors.white,
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
+                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               Text(
                 description,
                 style: const TextStyle(
-                  fontSize: 14,
                   color: Colors.white70,
+                  fontSize: 14,
                 ),
                 textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showDifficultyDialog(BuildContext context, GameType gameType) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF2A2A2A),
+          title: const Text(
+            'Select Difficulty',
+            style: TextStyle(color: Colors.white),
+            textAlign: TextAlign.center,
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: Difficulty.values.map((difficulty) {
+              return ListTile(
+                title: Text(
+                  difficulty.name.toUpperCase(),
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _navigateToGame(context, gameType, difficulty);
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  void _navigateToGame(
+      BuildContext context, GameType gameType, Difficulty difficulty) {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return gameType == GameType.memoryCommand
+              ? MemoryCommandGame(
+                  difficulty:
+                      memory_command.Difficulty.values[difficulty.index])
+              : PhotonBurstGame(
+                  difficulty: photon_burst.Difficulty.values[difficulty.index]);
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
+          var tween = Tween(begin: begin, end: end).chain(
+            CurveTween(curve: curve),
+          );
+          var offsetAnimation = animation.drive(tween);
+          return SlideTransition(
+            position: offsetAnimation,
+            child: child,
+          );
+        },
       ),
     );
   }

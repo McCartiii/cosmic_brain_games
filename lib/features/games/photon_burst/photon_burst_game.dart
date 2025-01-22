@@ -1,533 +1,418 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math';
-import 'focus_pulse_constants.dart';
+import 'photon_burst_constants.dart';
+import 'photon_target.dart';
+import 'particle_system.dart';
+import 'power_ups.dart';
 
-class FocusPulseGame extends StatefulWidget {
-  const FocusPulseGame({super.key});
+class PhotonBurstGame extends StatefulWidget {
+  final Difficulty difficulty;
+
+  const PhotonBurstGame({
+    super.key,
+    required this.difficulty,
+  });
 
   @override
-  State<FocusPulseGame> createState() => _FocusPulseGameState();
-}
+  State<PhotonBurstGame> createState() => _PhotonBurstGameState();
+} // ... (previous imports and class declaration) ...
 
-class _FocusPulseGameState extends State<FocusPulseGame>
+class _PhotonBurstGameState extends State<PhotonBurstGame>
     with SingleTickerProviderStateMixin {
   final Random random = Random();
-  late GameRule currentRule;
-  List<Target> targets = [];
-  int score = 0;
-  int streak = 0;
-  int consecutiveErrors = 0;
-  int currentLevel = 1;
-  int roundsCompleted = 0;
-  double scoreMultiplier = FocusPulseConstants.initialScoreMultiplier;
-  GameState gameState = GameState.menu;
-  RoundPhase roundPhase = RoundPhase.instruction;
+  final ExplosionEffect explosionEffect = ExplosionEffect();
+  List<PhotonTarget> targets = [];
+  List<PowerUp> activePowerUps = [];
   Timer? gameTimer;
-  Timer? phaseTimer;
-  Timer? warningTimer;
-  double gameSpeed = 1.0;
-  int gridSize = FocusPulseConstants.initialGridSize;
-  Map<int, bool> feedbackMap = {};
-
-  late final AnimationController _feedbackController;
+  Timer? spawnTimer;
+  late AnimationController _animationController;
+  int score = 0;
+  int timeRemaining = PhotonBurstConstants.gameDuration;
+  bool isGameActive = false;
+  int combo = 0;
+  double speedMultiplier = 1.0;
 
   @override
   void initState() {
     super.initState();
-    _feedbackController = AnimationController(
+    _animationController = AnimationController(
       vsync: this,
-      duration: FocusPulseConstants.feedbackDuration,
-    );
-    currentRule = FocusPulseConstants.basicRules[0];
+      duration: const Duration(milliseconds: 16),
+    )..addListener(_updateGame);
+    startGame();
   }
 
   @override
   void dispose() {
     gameTimer?.cancel();
-    phaseTimer?.cancel();
-    warningTimer?.cancel();
-    _feedbackController.dispose();
+    spawnTimer?.cancel();
+    _animationController.dispose();
     super.dispose();
+  }
+
+  void _updateGame() {
+    if (!isGameActive) return;
+
+    setState(() {
+      activePowerUps.removeWhere((powerUp) => powerUp.isExpired);
+      explosionEffect.update(0.016);
+
+      final hasTimeFreeze = activePowerUps
+          .any((p) => p.type == PowerUpType.timeFreeze && !p.isExpired);
+
+      if (!hasTimeFreeze) {
+        for (var target in targets) {
+          target.update(MediaQuery.of(context).size);
+        }
+      }
+    });
   }
 
   void startGame() {
     setState(() {
+      targets.clear();
+      activePowerUps.clear();
       score = 0;
-      streak = 0;
-      consecutiveErrors = 0;
-      currentLevel = 1;
-      roundsCompleted = 0;
-      scoreMultiplier = FocusPulseConstants.initialScoreMultiplier;
-      gameState = GameState.playing;
-      roundPhase = RoundPhase.instruction;
-      gameSpeed = 1.0;
-      gridSize = FocusPulseConstants.initialGridSize;
-      targets.clear();
-      feedbackMap.clear();
-      currentRule = FocusPulseConstants
-          .basicRules[random.nextInt(FocusPulseConstants.basicRules.length)];
+      timeRemaining = PhotonBurstConstants.gameDuration;
+      isGameActive = true;
+      combo = 0;
+      speedMultiplier =
+          PhotonBurstConstants.speedMultiplier[widget.difficulty]!;
     });
 
-    startInstructionPhase();
-  }
+    _animationController.repeat();
 
-  void startInstructionPhase() {
-    setState(() {
-      roundPhase = RoundPhase.instruction;
-      targets.clear();
-    });
-
-    phaseTimer = Timer(FocusPulseConstants.instructionPhaseDuration, () {
-      if (mounted) {
-        startActionPhase();
-      }
-    });
-  }
-
-  void startActionPhase() {
-    setState(() {
-      roundPhase = RoundPhase.action;
-      targets.clear();
-      spawnTargets();
-    });
-
-    startGameLoop();
-
-    phaseTimer = Timer(FocusPulseConstants.actionPhaseDuration, () {
-      if (mounted) {
-        endActionPhase();
-      }
-    });
-  }
-
-  void endActionPhase() {
-    gameTimer?.cancel();
-
-    setState(() {
-      roundsCompleted++;
-      if (roundsCompleted >= FocusPulseConstants.roundsPerLevel) {
-        currentLevel++;
-        roundsCompleted = 0;
-        gameSpeed += FocusPulseConstants.speedIncreasePerLevel;
-        if (gridSize < FocusPulseConstants.maxGridSize) {
-          gridSize++;
-        }
-      }
-    });
-
-    startPausePhase();
-  }
-
-  void startPausePhase() {
-    setState(() {
-      roundPhase = RoundPhase.pause;
-      targets.clear();
-    });
-
-    phaseTimer = Timer(FocusPulseConstants.pausePhaseDuration, () {
-      if (mounted && gameState == GameState.playing) {
-        currentRule = FocusPulseConstants
-            .basicRules[random.nextInt(FocusPulseConstants.basicRules.length)];
-        startInstructionPhase();
-      }
-    });
-  }
-
-  void startGameLoop() {
-    gameTimer?.cancel();
-
-    gameTimer = Timer.periodic(
-        Duration(
-            milliseconds:
-                (FocusPulseConstants.baseTargetDuration.inMilliseconds /
-                        gameSpeed)
-                    .round()), (timer) {
-      if (mounted &&
-          gameState == GameState.playing &&
-          roundPhase == RoundPhase.action) {
-        setState(() {
-          if (targets.isEmpty || targets.length < gridSize) {
-            spawnTargets();
+    gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        if (timeRemaining > 0) {
+          final hasTimeFreeze = activePowerUps
+              .any((p) => p.type == PowerUpType.timeFreeze && !p.isExpired);
+          if (!hasTimeFreeze) {
+            timeRemaining--;
           }
-          feedbackMap.clear();
-        });
-      } else {
-        timer.cancel();
+        } else {
+          endGame();
+        }
+      });
+    });
+
+    spawnTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
+      if (isGameActive &&
+          targets.length <
+              PhotonBurstConstants.maxTargets[widget.difficulty]!) {
+        spawnTarget();
       }
     });
   }
 
-  void showWarning() {
+  void spawnTarget() {
+    if (!isGameActive) return;
+
+    final screenSize = MediaQuery.of(context).size;
+    final size =
+        PhotonBurstConstants.baseTargetSize * (0.8 + random.nextDouble() * 0.4);
+
+    final roll = random.nextDouble();
+    final targetType = switch (roll) {
+      < 0.05 when score >= 1000 => TargetType.powerUp,
+      < 0.15 => TargetType.bonus,
+      < 0.25 => TargetType.trap,
+      _ => TargetType.standard,
+    };
+
+    final target = PhotonTarget(
+      size: size,
+      color: _getTargetColor(targetType),
+      x: random.nextDouble() * (screenSize.width - size),
+      y: random.nextDouble() * (screenSize.height - size),
+      type: targetType,
+      velocity: PhotonBurstConstants.baseVelocity * speedMultiplier,
+      angle: random.nextDouble() * 2 * pi,
+    );
+
     setState(() {
-      gameState = GameState.warning;
-      scoreMultiplier = FocusPulseConstants.initialScoreMultiplier;
-    });
-
-    warningTimer = Timer(FocusPulseConstants.warningDuration, () {
-      if (mounted) {
-        setState(() {
-          gameState = GameState.playing;
-        });
-      }
+      targets.add(target);
     });
   }
 
-  void onTargetTapped(Target target) {
-    if (gameState != GameState.playing || roundPhase != RoundPhase.action)
-      return;
+  Color _getTargetColor(TargetType type) {
+    return switch (type) {
+      TargetType.standard => PhotonBurstConstants.standardTargetColor,
+      TargetType.bonus => PhotonBurstConstants.bonusTargetColor,
+      TargetType.trap => PhotonBurstConstants.trapTargetColor,
+      TargetType.powerUp => PhotonBurstConstants.powerUpColor,
+    };
+  }
 
-    bool isCorrect = currentRule.isValidTarget(target);
+  void onTargetTapped(PhotonTarget target) {
+    if (!isGameActive) return;
+
+    explosionEffect.createExplosion(
+      Offset(target.x + target.size / 2, target.y + target.size / 2),
+      target.color,
+    );
 
     setState(() {
-      feedbackMap[target.gridPosition] = isCorrect;
+      target.hit();
+      targets.remove(target);
 
-      if (isCorrect) {
-        score +=
-            (FocusPulseConstants.pointsForCorrectTap * scoreMultiplier).round();
-        streak++;
-        consecutiveErrors = 0;
-        if (streak > 0 &&
-            streak % FocusPulseConstants.streakBonusThreshold == 0) {
-          score += FocusPulseConstants.streakBonusPoints;
-          scoreMultiplier += 0.5;
-        }
-        // Remove the tapped target
-        targets.removeWhere((t) => t.gridPosition == target.gridPosition);
-      } else {
-        score = max(0, score + FocusPulseConstants.pointsForIncorrectTap);
-        streak = 0;
-        consecutiveErrors++;
-        if (consecutiveErrors >= FocusPulseConstants.maxConsecutiveErrors) {
-          showWarning();
-        }
+      final hasDoublePoints = activePowerUps
+          .any((p) => p.type == PowerUpType.doublePoints && !p.isExpired);
+      final pointMultiplier = hasDoublePoints ? 2.0 : 1.0;
+
+      switch (target.type) {
+        case TargetType.standard:
+          score += (PhotonBurstConstants.pointsPerHit *
+                  (1 + combo ~/ 5) *
+                  pointMultiplier)
+              .toInt();
+          combo++;
+          break;
+        case TargetType.bonus:
+          score += (PhotonBurstConstants.bonusPoints * pointMultiplier).toInt();
+          combo += 2;
+          break;
+        case TargetType.trap:
+          if (!activePowerUps
+              .any((p) => p.type == PowerUpType.shield && !p.isExpired)) {
+            score = max(0, score + PhotonBurstConstants.penaltyPoints);
+            combo = 0;
+            speedMultiplier = max(1.0, speedMultiplier - 0.1);
+          }
+          break;
+        case TargetType.powerUp:
+          _activatePowerUp();
+          break;
+      }
+
+      if (score > 0 && score % 1000 == 0) {
+        speedMultiplier += 0.1;
       }
     });
+  }
 
-    _feedbackController.forward(from: 0).then((_) {
-      if (mounted) {
-        setState(() {
-          feedbackMap.remove(target.gridPosition);
-        });
-      }
+  void _activatePowerUp() {
+    final availablePowerUps = PowerUpType.values
+        .where((type) =>
+            !activePowerUps.any((p) => p.type == type && !p.isExpired))
+        .toList();
+
+    if (availablePowerUps.isEmpty) return;
+
+    final powerUpType =
+        availablePowerUps[random.nextInt(availablePowerUps.length)];
+    final powerUp = PowerUp(
+      type: powerUpType,
+      duration: const Duration(seconds: 5),
+    );
+
+    setState(() {
+      activePowerUps.add(powerUp);
     });
-  }
 
-  void spawnTargets() {
-    // Clear inactive targets
-    targets.removeWhere((target) => !target.isActive);
-
-    // Only add new targets if we need more
-    if (targets.length < gridSize * gridSize) {
-      // Ensure at least one valid target
-      if (!targets.any((t) => currentRule.isValidTarget(t))) {
-        final validTarget = createValidTarget();
-        targets.add(validTarget);
-      }
-
-      // Add bait target if in higher levels
-      if (currentLevel >= 2 && !targets.any((t) => t.isBait)) {
-        final baitTarget = createBaitTarget();
-        targets.add(baitTarget);
-      }
-
-      // Fill remaining spaces with random targets
-      while (targets.length < gridSize * gridSize) {
-        final target = createRandomTarget();
-        if (!targets.any((t) => t.gridPosition == target.gridPosition)) {
-          targets.add(target);
-        }
-      }
-    }
-  }
-
-  Target createValidTarget() {
-    ShapeType shape;
-    TargetColor color;
-
-    do {
-      shape = ShapeType.values[random.nextInt(ShapeType.values.length)];
-      color = TargetColor.values[random.nextInt(TargetColor.values.length)];
-    } while (!currentRule
-        .isValidTarget(Target(shape: shape, color: color, gridPosition: 0)));
-
-    return Target(
-      shape: shape,
-      color: color,
-      gridPosition: getRandomEmptyPosition(),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(powerUp.icon, color: powerUp.color),
+            const SizedBox(width: 8),
+            Text('${powerUp.name} activated!'),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
-  Target createBaitTarget() {
-    ShapeType shape;
-    TargetColor color;
+  void endGame() {
+    setState(() {
+      isGameActive = false;
+      gameTimer?.cancel();
+      spawnTimer?.cancel();
+      _animationController.stop();
+    });
 
-    do {
-      shape = ShapeType.values[random.nextInt(ShapeType.values.length)];
-      color = TargetColor.values[random.nextInt(TargetColor.values.length)];
-    } while (currentRule
-        .isValidTarget(Target(shape: shape, color: color, gridPosition: 0)));
-
-    return Target(
-      shape: shape,
-      color: color,
-      gridPosition: getRandomEmptyPosition(),
-      isBait: true,
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.black87,
+        title: const Text(
+          'Game Over',
+          style: TextStyle(color: Colors.white),
+          textAlign: TextAlign.center,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Score: $score',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Max Combo: $combo',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              startGame();
+            },
+            child: const Text('Play Again'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pop();
+            },
+            child: const Text('Exit'),
+          ),
+        ],
+      ),
     );
-  }
-
-  Target createRandomTarget() {
-    return Target(
-      shape: ShapeType.values[random.nextInt(ShapeType.values.length)],
-      color: TargetColor.values[random.nextInt(TargetColor.values.length)],
-      gridPosition: getRandomEmptyPosition(),
-    );
-  }
-
-  int getRandomEmptyPosition() {
-    int position;
-    do {
-      position = random.nextInt(gridSize * gridSize);
-    } while (targets.any((t) => t.gridPosition == position));
-    return position;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: FocusPulseConstants.backgroundColor,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
+      backgroundColor: PhotonBurstConstants.backgroundColor,
+      body: Stack(
+        children: [
+          GestureDetector(
+            onTapDown: (details) {
+              for (final target in targets) {
+                if (target.containsPoint(details.localPosition)) {
+                  onTargetTapped(target);
+                  break;
+                }
+              }
+            },
+            child: CustomPaint(
+              painter: GamePainter(
+                targets: targets,
+                explosionEffect: explosionEffect,
+              ),
+              size: Size.infinite,
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () => Navigator.pop(context),
+                      Text(
+                        'Score: $score',
+                        style: PhotonBurstConstants.scoreStyle,
                       ),
-                      Column(
-                        children: [
-                          Text(
-                            'Score: $score',
-                            style: FocusPulseConstants.scoreStyle,
-                          ),
-                          Text(
-                            'Level: $currentLevel',
-                            style: FocusPulseConstants.levelStyle,
-                          ),
-                        ],
-                      ),
-                      Column(
-                        children: [
-                          Text(
-                            'Streak: $streak',
-                            style: FocusPulseConstants.streakStyle,
-                          ),
-                          Text(
-                            '${scoreMultiplier}x',
-                            style: FocusPulseConstants.streakStyle.copyWith(
-                              color: Colors.yellow,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        'Time: $timeRemaining',
+                        style: PhotonBurstConstants.timerStyle,
                       ),
                     ],
                   ),
-                ),
-                if (roundPhase == RoundPhase.instruction ||
-                    roundPhase == RoundPhase.action)
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Text(
-                      currentRule.instruction,
-                      style: FocusPulseConstants.instructionStyle,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                if (roundPhase == RoundPhase.pause)
-                  const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Text(
-                      'Get Ready...',
-                      style: FocusPulseConstants.instructionStyle,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                Expanded(
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.all(FocusPulseConstants.gridPadding),
-                    child: AspectRatio(
-                      aspectRatio: 1.0,
-                      child: GridView.builder(
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: gridSize,
-                          crossAxisSpacing: FocusPulseConstants.gridSpacing,
-                          mainAxisSpacing: FocusPulseConstants.gridSpacing,
-                        ),
-                        itemCount: gridSize * gridSize,
-                        itemBuilder: (context, index) {
-                          final target = targets.firstWhere(
-                            (t) => t.gridPosition == index,
-                            orElse: () => Target(
-                              shape: ShapeType.circle,
-                              color: TargetColor.blue,
-                              gridPosition: index,
-                              isActive: false,
-                            ),
-                          );
-
-                          if (!target.isActive) return const SizedBox.shrink();
-
-                          return LayoutBuilder(
-                            builder: (context, constraints) {
-                              final size = min(
-                                constraints.maxWidth,
-                                FocusPulseConstants.maxTargetSize,
-                              );
-
-                              return Center(
-                                child: SizedBox(
-                                  width: size,
-                                  height: size,
-                                  child: AnimatedBuilder(
-                                    animation: _feedbackController,
-                                    builder: (context, child) {
-                                      final feedback =
-                                          feedbackMap[target.gridPosition];
-                                      final color = feedback == null
-                                          ? null
-                                          : feedback
-                                              ? FocusPulseConstants
-                                                  .correctFeedbackColor
-                                              : FocusPulseConstants
-                                                  .incorrectFeedbackColor;
-
-                                      return GestureDetector(
-                                        onTap: () => onTargetTapped(target),
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            border: color != null
-                                                ? Border.all(
-                                                    color: color.withOpacity(
-                                                        _feedbackController
-                                                            .value),
-                                                    width: 3,
-                                                  )
-                                                : null,
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                          ),
-                                          child: GameShape(target: target),
-                                        ),
-                                      );
-                                    },
+                  if (activePowerUps.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: activePowerUps
+                          .where((p) => !p.isExpired)
+                          .map((powerUp) => Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: Tooltip(
+                                  message: powerUp.name,
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      CircularProgressIndicator(
+                                        value: powerUp.remainingTime / 5,
+                                        valueColor: AlwaysStoppedAnimation(
+                                            powerUp.color),
+                                      ),
+                                      Icon(
+                                        powerUp.icon,
+                                        color: powerUp.color,
+                                        size: 20,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                              ))
+                          .toList(),
                     ),
-                  ),
-                ),
-                if (gameState == GameState.menu)
-                  Padding(
-                    padding: const EdgeInsets.all(32.0),
-                    child: ElevatedButton(
-                      onPressed: startGame,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 48,
-                          vertical: 16,
-                        ),
-                      ),
-                      child: Text(
-                        'Start Game',
-                        style: FocusPulseConstants.buttonStyle,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            if (gameState == GameState.warning)
-              Container(
-                color: FocusPulseConstants.warningColor.withOpacity(0.3),
-                child: Center(
-                  child: Text(
-                    'Warning!',
-                    style: FocusPulseConstants.warningStyle,
-                  ),
-                ),
+                  ],
+                ],
               ),
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class GameShape extends StatelessWidget {
-  final Target target;
+class GamePainter extends CustomPainter {
+  final List<PhotonTarget> targets;
+  final ExplosionEffect explosionEffect;
 
-  const GameShape({super.key, required this.target});
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: ShapePainter(
-        shape: target.shape,
-        color: FocusPulseConstants.targetColors[target.color]!,
-      ),
-    );
-  }
-}
-
-class ShapePainter extends CustomPainter {
-  final ShapeType shape;
-  final Color color;
-
-  ShapePainter({required this.shape, required this.color});
+  GamePainter({
+    required this.targets,
+    required this.explosionEffect,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
+    for (final target in targets) {
+      final paint = Paint()
+        ..color = target.color.withOpacity(target.opacity)
+        ..style = PaintingStyle.fill;
 
-    switch (shape) {
-      case ShapeType.circle:
-        canvas.drawCircle(
-          Offset(size.width / 2, size.height / 2),
-          min(size.width, size.height) / 2,
-          paint,
-        );
-        break;
-      case ShapeType.triangle:
-        final path = Path();
-        path.moveTo(size.width / 2, 0);
-        path.lineTo(size.width, size.height);
-        path.lineTo(0, size.height);
-        path.close();
-        canvas.drawPath(path, paint);
-        break;
-      case ShapeType.square:
-        canvas.drawRect(
-          Rect.fromLTWH(0, 0, size.width, size.height),
-          paint,
-        );
-        break;
+      canvas.save();
+      canvas.translate(
+        target.x + target.size / 2,
+        target.y + target.size / 2,
+      );
+      canvas.rotate(target.rotationAngle);
+      canvas.scale(target.scale);
+
+      canvas.drawCircle(
+        Offset.zero,
+        target.size / 2,
+        paint,
+      );
+
+      final borderPaint = Paint()
+        ..color = Colors.white30
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+
+      canvas.drawCircle(
+        Offset.zero,
+        target.size / 3,
+        borderPaint,
+      );
+
+      canvas.restore();
     }
+
+    explosionEffect.draw(canvas);
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(GamePainter oldDelegate) => true;
 }
